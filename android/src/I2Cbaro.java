@@ -21,6 +21,7 @@
   }
 */
 
+
 package org.xcsoar;
 
 import android.util.Log;
@@ -30,15 +31,18 @@ import ioio.lib.api.DigitalInput;
 import ioio.lib.api.exception.ConnectionLostException;
 
 /**
- * TODO: split file in I2Cbaro.java, MS5611.java and BMP085.java
+ * TODO: split file in I2Cbaro.java, MS5611.java and BMP085.java AND NOW RIZOVARO
  *
  * A driver for the MS5611 and BMP085 pressure sensors, connected via IOIO.
  * @see http://http://www.meas-spec.com/downloads/ms5611-01ba01.pdf and
  * @see http://www.bosch-sensortec.com/content/language1/html/3477.htm
  *
+ * 7/2/2014 - > Add code for support RizoVARO (LPS331)
+ *
  * We use a slow 100 KHz I2C clock because of radio interference reasons.
  *
  */
+
 final class I2Cbaro extends Thread {
   interface Listener {
     /**
@@ -165,6 +169,25 @@ final class I2Cbaro extends Thread {
 
   private byte[] dummy = new byte [0];
 
+  /**
+   * CODE for RizoVARO
+   */
+   
+  static final byte LPS331AP_CHIP_ID = (byte)0xBB;
+  static final byte AUTOINCREMENTO = (byte)0x80;
+  
+  static final byte LPS331_WHO_AM_I       = 0x0F;
+  static final byte LPS331_CTRL_REG1      = 0x20;
+
+  static final byte LPS331_PRESS_OUT_XL   = 0x28;
+  static final byte LPS331_PRESS_OUT_L    = 0x29;
+  static final byte LPS331_PRESS_OUT_H    = 0x2A ;
+
+  static final byte LPS331_TEMP_OUT_L     = 0x2B;
+  static final byte LPS331_TEMP_OUT_H     = 0x2C;
+  
+  private byte[] requestrizo = new byte[] {LPS331_WHO_AM_I};  
+  private byte[] responserizo = new byte[1];
 
   public I2Cbaro(IOIO ioio, int twiNum, int _i2c_addr, int _sample_rate, int _flags,
                 Listener _listener)
@@ -177,9 +200,9 @@ final class I2Cbaro extends Thread {
       i2c_addr =  (byte)_i2c_addr;
     else
       i2c_addr = (byte)(twiNum >> 8);
-    eocPin = (byte)(twiNum >> 16);
-    sample_rate = _sample_rate;
-    flags = _flags;
+      eocPin = (byte)(twiNum >> 16);
+      sample_rate = _sample_rate;
+      flags = _flags;
 
     if (eocPin != 0)
       h_eoc = ioio.openDigitalInput(eocPin);
@@ -222,6 +245,9 @@ final class I2Cbaro extends Thread {
   private boolean setup085()
     throws ConnectionLostException, InterruptedException {
     /* is it a BMP085 sensor? */
+    if (i2c_addr != (byte)0x77)
+      return false;
+          	  
     byte[] response085ChipID = new byte[1];
     h_twi.writeRead(i2c_addr, false,
                   request085ChipID, request085ChipID.length,
@@ -248,6 +274,7 @@ final class I2Cbaro extends Thread {
     read085Pressure[1] += oversampling085 << 6;
 
     return true;
+  
   }
 
   private boolean setup5611()
@@ -282,6 +309,28 @@ final class I2Cbaro extends Thread {
     C6  = prom[6];
 
     return true;
+
+  }
+
+  private boolean setup331()
+    throws ConnectionLostException, InterruptedException {
+
+
+     /* is it a RIZOVARO sensor? */
+   
+    h_twi.writeRead(i2c_addr, false, requestrizo, requestrizo.length, responserizo, responserizo.length);
+
+    if (responserizo[0] != LPS331AP_CHIP_ID)
+        return false;
+	
+    else
+    	{
+        byte[] requestinit = new byte[] {LPS331_CTRL_REG1, (byte)0xE0};
+        // active mode, sample_rate Hz output data rate, BDU 
+        h_twi.writeRead(i2c_addr, false, requestinit, requestinit.length, dummy, 0);
+		sleep(25);
+        return true;
+    }
   }
 
   private void read085Sensor(byte[] request, byte[] response, int responseLength)
@@ -424,17 +473,48 @@ final class I2Cbaro extends Thread {
     sleep(sleep_time);
   }
 
+  private void loop331() throws ConnectionLostException, InterruptedException {
+    
+    byte[] requestPressure = new byte[] {LPS331_PRESS_OUT_XL | AUTOINCREMENTO};  
+    byte[] responsePressure = new byte[6];
+
+    // Read Sensor
+    h_twi.writeRead(i2c_addr, false, requestPressure, requestPressure.length, responsePressure, responsePressure.length);
+    int CD = ((((int)responsePressure[2]&0xff) << 16) | (((int)responsePressure[1]&0xff) << 8) | ((int)responsePressure[0]&0xff));
+
+    //Convert to (Pa)
+    float press = (float)CD / 40.96f;
+    int Press331 = (int)press;
+    
+    listener.onI2CbaroValues(331, Press331);
+
+    sleep(5);
+  }
+
+
+
   @Override public void run() {
     try {
-      if (i2c_addr == 0x77 && setup085())
-        type = 85;
-      else {
-        if (setup5611())
-          type = 5611;
+      if (i2c_addr == (byte)0x5D && setup331())
+	type = 331;
         else {
-         Log.e(TAG, "No supported barometer found.");
-          return;
-        }
+	  if ((i2c_addr == (byte)0x77 || i2c_addr == (byte)0x76) && setup5611()) //check it
+            type = 85;
+	  else {
+            if (i2c_addr == (byte)0x77 && setup085())
+              type = 5611;
+            else { 
+		Log.e(TAG, "No supported barometer found.");
+	          return;
+	   }        
+	 }
+       }
+
+	if (type == 331) {
+        sleep_time = 1000 / sample_rate - 11; // - conversion time
+        if (sleep_time < 1) sleep_time = 1;
+        while (true)
+          loop331();
       }
 
       if (type == 5611) {
