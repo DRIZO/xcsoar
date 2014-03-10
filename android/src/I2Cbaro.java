@@ -37,7 +37,7 @@ import ioio.lib.api.exception.ConnectionLostException;
  * @see http://http://www.meas-spec.com/downloads/ms5611-01ba01.pdf and
  * @see http://www.bosch-sensortec.com/content/language1/html/3477.htm
  *
- * 7/2/2014 - > Add code for support RizoVARO (LPS331)
+ * 10/2/2014 - > Add code for support RizoVARO (LPS331)
  *
  * We use a slow 100 KHz I2C clock because of radio interference reasons.
  *
