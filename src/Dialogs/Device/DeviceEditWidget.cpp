@@ -325,11 +325,13 @@ FillI2CBus(DataFieldEnum &dfe)
 }
 
 /* Only lists possible addresses of supported devices */
+/* Add support to RizoVARO */
 static void
 FillI2CAddr(DataFieldEnum &dfe)
 {
   dfe.addEnumText(_T("0x76 (MS5611)"), 0x76);
   dfe.addEnumText(_T("0x77 (BMP085 and MS5611)"), 0x77);
+  dfe.addEnumText(_T("0x5D (RizoVARO)"), 0x5D);
 //  dfe.addEnumText(_T("0x52 (Nunchuck)"), 0x52); Is implied by device, no choice
 //  dfe.addEnumText(_T("0x69 (MPU6050)"), 0x69); Is implied by device, no choice
 //  dfe.addEnumText(_T("0x1e (HMC5883)"), 0x1e); Is implied by device, no choice
